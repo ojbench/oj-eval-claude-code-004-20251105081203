@@ -42,10 +42,9 @@ struct Book {
 struct Transaction {
     string type; // "buy" or "import"
     double amount;
-    string timestamp;
 
-    Transaction(string t = "", double a = 0.0, string time = "")
-        : type(t), amount(a), timestamp(time) {}
+    Transaction(string t = "", double a = 0.0)
+        : type(t), amount(a) {}
 };
 
 // Global variables
@@ -53,8 +52,6 @@ vector<User> users;
 vector<Book> books;
 vector<Transaction> transactions;
 vector<string> loginStack;
-map<string, User*> userMap;
-map<string, Book*> bookMap;
 string selectedISBN = "";
 
 // File names
@@ -90,6 +87,7 @@ User* getUser(const string& userID);
 bool bookExists(const string& ISBN);
 Book* getBook(const string& ISBN);
 vector<string> parseCommand(const string& command);
+string trim(const string& str);
 
 int main() {
     initializeSystem();
@@ -111,9 +109,8 @@ void initializeSystem() {
     ifstream userFile(USER_FILE);
     if (!userFile.good()) {
         // First run - create root user
-        User* root = new User(ROOT_USERNAME, ROOT_PASSWORD, "root", ROOT_PRIVILEGE);
-        users.push_back(*root);
-        userMap[ROOT_USERNAME] = root;
+        User root(ROOT_USERNAME, ROOT_PASSWORD, "root", ROOT_PRIVILEGE);
+        users.push_back(root);
         saveData();
     } else {
         loadData();
@@ -130,9 +127,8 @@ void loadData() {
             string id, pwd, name;
             int priv;
             ss >> id >> pwd >> name >> priv;
-            User* user = new User(id, pwd, name, priv);
-            users.push_back(*user);
-            userMap[id] = user;
+            User user(id, pwd, name, priv);
+            users.push_back(user);
         }
         userFile.close();
     }
@@ -147,9 +143,8 @@ void loadData() {
             double price;
             int stock;
             ss >> isbn >> name >> auth >> kw >> price >> stock;
-            Book* book = new Book(isbn, name, auth, kw, price, stock);
-            books.push_back(*book);
-            bookMap[isbn] = book;
+            Book book(isbn, name, auth, kw, price, stock);
+            books.push_back(book);
         }
         bookFile.close();
     }
@@ -160,10 +155,10 @@ void loadData() {
         string line;
         while (getline(transFile, line)) {
             stringstream ss(line);
-            string type, time;
+            string type;
             double amount;
-            ss >> type >> amount >> time;
-            Transaction trans(type, amount, time);
+            ss >> type >> amount;
+            Transaction trans(type, amount);
             transactions.push_back(trans);
         }
         transFile.close();
@@ -193,49 +188,36 @@ void saveData() {
     ofstream transFile(TRANSACTION_FILE);
     for (const auto& trans : transactions) {
         transFile << trans.type << " " << fixed << setprecision(2)
-                  << trans.amount << " " << trans.timestamp << "\n";
+                  << trans.amount << "\n";
     }
     transFile.close();
 }
 
+string trim(const string& str) {
+    size_t start = str.find_first_not_of(" ");
+    if (start == string::npos) return "";
+    size_t end = str.find_last_not_of(" ");
+    return str.substr(start, end - start + 1);
+}
+
 vector<string> parseCommand(const string& command) {
     vector<string> tokens;
-    stringstream ss(command);
+    string trimmed = trim(command);
+
+    if (trimmed.empty()) return tokens;
+
+    stringstream ss(trimmed);
     string token;
 
     while (ss >> token) {
-        // Handle quoted strings
-        if (token.front() == '"') {
-            string quoted = token;
-            while (quoted.back() != '"' && ss >> token) {
-                quoted += " " + token;
-            }
-            if (quoted.back() == '"') {
-                tokens.push_back(quoted.substr(1, quoted.length() - 2));
-            } else {
-                tokens.push_back(quoted.substr(1));
-            }
-        } else {
-            tokens.push_back(token);
-        }
+        tokens.push_back(token);
     }
 
     return tokens;
 }
 
 void processCommand(const string& command) {
-    string trimmed = command;
-
-    // Remove leading and trailing spaces
-    size_t start = trimmed.find_first_not_of(" ");
-    size_t end = trimmed.find_last_not_of(" ");
-    if (start == string::npos) {
-        // Empty command or only spaces
-        return;
-    }
-    trimmed = trimmed.substr(start, end - start + 1);
-
-    vector<string> tokens = parseCommand(trimmed);
+    vector<string> tokens = parseCommand(command);
 
     if (tokens.empty()) {
         return;
@@ -300,13 +282,12 @@ void executeSu(const vector<string>& tokens) {
     }
 
     string userID = tokens[1];
+    User* user = getUser(userID);
 
-    if (!userExists(userID)) {
+    if (!user) {
         cout << "Invalid\n";
         return;
     }
-
-    User* user = getUser(userID);
 
     if (tokens.size() == 3) {
         string password = tokens[2];
@@ -353,9 +334,8 @@ void executeRegister(const vector<string>& tokens) {
         return;
     }
 
-    User* newUser = new User(userID, password, username, 1);
-    users.push_back(*newUser);
-    userMap[userID] = newUser;
+    User newUser(userID, password, username, 1);
+    users.push_back(newUser);
 }
 
 void executePasswd(const vector<string>& tokens) {
@@ -365,13 +345,12 @@ void executePasswd(const vector<string>& tokens) {
     }
 
     string userID = tokens[1];
+    User* user = getUser(userID);
 
-    if (!userExists(userID)) {
+    if (!user) {
         cout << "Invalid\n";
         return;
     }
-
-    User* user = getUser(userID);
 
     if (tokens.size() == 3) {
         // Only new password provided - must be root
@@ -425,9 +404,8 @@ void executeUseradd(const vector<string>& tokens) {
         return;
     }
 
-    User* newUser = new User(userID, password, username, privilege);
-    users.push_back(*newUser);
-    userMap[userID] = newUser;
+    User newUser(userID, password, username, privilege);
+    users.push_back(newUser);
 }
 
 void executeDelete(const vector<string>& tokens) {
@@ -457,10 +435,12 @@ void executeDelete(const vector<string>& tokens) {
     }
 
     // Remove user
-    users.erase(remove_if(users.begin(), users.end(),
-                         [&](const User& u) { return u.userID == userID; }),
-                users.end());
-    userMap.erase(userID);
+    for (auto it = users.begin(); it != users.end(); ++it) {
+        if (it->userID == userID) {
+            users.erase(it);
+            break;
+        }
+    }
 }
 
 void executeShow(const vector<string>& tokens) {
@@ -469,48 +449,46 @@ void executeShow(const vector<string>& tokens) {
         return;
     }
 
-    vector<Book*> results;
+    vector<Book> results;
 
     if (tokens.size() == 1) {
         // Show all books
-        for (auto& book : books) {
-            results.push_back(&book);
-        }
+        results = books;
     } else {
         // Show with filter
         string filter = tokens[1];
 
         if (filter.find("-ISBN=") == 0) {
             string ISBN = filter.substr(6);
-            for (auto& book : books) {
+            for (const auto& book : books) {
                 if (book.ISBN == ISBN) {
-                    results.push_back(&book);
+                    results.push_back(book);
                 }
             }
-        } else if (filter.find("-name=\"") == 0 && filter.back() == '"') {
-            string name = filter.substr(7, filter.length() - 8);
-            for (auto& book : books) {
+        } else if (filter.find("-name=") == 0) {
+            string name = filter.substr(6);
+            for (const auto& book : books) {
                 if (book.bookName == name) {
-                    results.push_back(&book);
+                    results.push_back(book);
                 }
             }
-        } else if (filter.find("-author=\"") == 0 && filter.back() == '"') {
-            string author = filter.substr(9, filter.length() - 10);
-            for (auto& book : books) {
+        } else if (filter.find("-author=") == 0) {
+            string author = filter.substr(8);
+            for (const auto& book : books) {
                 if (book.author == author) {
-                    results.push_back(&book);
+                    results.push_back(book);
                 }
             }
-        } else if (filter.find("-keyword=\"") == 0 && filter.back() == '"') {
-            string keyword = filter.substr(10, filter.length() - 11);
+        } else if (filter.find("-keyword=") == 0) {
+            string keyword = filter.substr(9);
             // Check if keyword contains multiple keywords
             if (keyword.find('|') != string::npos) {
                 cout << "Invalid\n";
                 return;
             }
-            for (auto& book : books) {
+            for (const auto& book : books) {
                 if (book.keyword.find(keyword) != string::npos) {
-                    results.push_back(&book);
+                    results.push_back(book);
                 }
             }
         } else {
@@ -521,14 +499,14 @@ void executeShow(const vector<string>& tokens) {
 
     // Sort by ISBN
     sort(results.begin(), results.end(),
-         [](Book* a, Book* b) { return a->ISBN < b->ISBN; });
+         [](const Book& a, const Book& b) { return a.ISBN < b.ISBN; });
 
     // Output results
     for (const auto& book : results) {
-        cout << book->ISBN << "\t" << book->bookName << "\t"
-             << book->author << "\t" << book->keyword << "\t"
-             << fixed << setprecision(2) << book->price << "\t"
-             << book->stockQuantity << "\n";
+        cout << book.ISBN << "\t" << book.bookName << "\t"
+             << book.author << "\t" << book.keyword << "\t"
+             << fixed << setprecision(2) << book.price << "\t"
+             << book.stockQuantity << "\n";
     }
 
     if (results.empty()) {
@@ -555,12 +533,11 @@ void executeBuy(const vector<string>& tokens) {
         return;
     }
 
-    if (!bookExists(ISBN)) {
+    Book* book = getBook(ISBN);
+    if (!book) {
         cout << "Invalid\n";
         return;
     }
-
-    Book* book = getBook(ISBN);
 
     if (book->stockQuantity < quantity) {
         cout << "Invalid\n";
@@ -571,7 +548,7 @@ void executeBuy(const vector<string>& tokens) {
     book->stockQuantity -= quantity;
 
     // Record transaction
-    Transaction trans("buy", total, "timestamp");
+    Transaction trans("buy", total);
     transactions.push_back(trans);
 
     cout << fixed << setprecision(2) << total << "\n";
@@ -592,9 +569,8 @@ void executeSelect(const vector<string>& tokens) {
 
     if (!bookExists(ISBN)) {
         // Create new book
-        Book* newBook = new Book(ISBN);
-        books.push_back(*newBook);
-        bookMap[ISBN] = newBook;
+        Book newBook(ISBN);
+        books.push_back(newBook);
     }
 
     selectedISBN = ISBN;
@@ -617,6 +593,10 @@ void executeModify(const vector<string>& tokens) {
     }
 
     Book* book = getBook(selectedISBN);
+    if (!book) {
+        cout << "Invalid\n";
+        return;
+    }
 
     // Check for duplicate parameters
     map<string, bool> paramUsed;
@@ -643,34 +623,34 @@ void executeModify(const vector<string>& tokens) {
             book->ISBN = newISBN;
             selectedISBN = newISBN;
 
-        } else if (token.find("-name=\"") == 0 && token.back() == '"') {
+        } else if (token.find("-name=") == 0) {
             if (paramUsed["name"]) {
                 cout << "Invalid\n";
                 return;
             }
             paramUsed["name"] = true;
 
-            string name = token.substr(7, token.length() - 8);
+            string name = token.substr(6);
             book->bookName = name;
 
-        } else if (token.find("-author=\"") == 0 && token.back() == '"') {
+        } else if (token.find("-author=") == 0) {
             if (paramUsed["author"]) {
                 cout << "Invalid\n";
                 return;
             }
             paramUsed["author"] = true;
 
-            string author = token.substr(9, token.length() - 10);
+            string author = token.substr(8);
             book->author = author;
 
-        } else if (token.find("-keyword=\"") == 0 && token.back() == '"') {
+        } else if (token.find("-keyword=") == 0) {
             if (paramUsed["keyword"]) {
                 cout << "Invalid\n";
                 return;
             }
             paramUsed["keyword"] = true;
 
-            string keyword = token.substr(10, token.length() - 11);
+            string keyword = token.substr(9);
             // Check for duplicate segments
             vector<string> segments;
             stringstream ss(keyword);
@@ -726,10 +706,15 @@ void executeImport(const vector<string>& tokens) {
     }
 
     Book* book = getBook(selectedISBN);
+    if (!book) {
+        cout << "Invalid\n";
+        return;
+    }
+
     book->stockQuantity += quantity;
 
     // Record transaction
-    Transaction trans("import", -totalCost, "timestamp");
+    Transaction trans("import", -totalCost);
     transactions.push_back(trans);
 }
 
@@ -739,7 +724,7 @@ void executeShowFinance(const vector<string>& tokens) {
         return;
     }
 
-    size_t count = transactions.size();
+    int count = transactions.size();
     if (tokens.size() > 1) {
         count = stoi(tokens[1]);
     }
@@ -749,7 +734,7 @@ void executeShowFinance(const vector<string>& tokens) {
         return;
     }
 
-    if (count > transactions.size()) {
+    if (count > (int)transactions.size()) {
         cout << "Invalid\n";
         return;
     }
@@ -762,8 +747,8 @@ void executeShowFinance(const vector<string>& tokens) {
     double income = 0.0, expenditure = 0.0;
 
     // Get last 'count' transactions
-    size_t startIdx = transactions.size() - count;
-    for (size_t i = startIdx; i < transactions.size(); i++) {
+    int startIdx = max(0, (int)transactions.size() - count);
+    for (int i = startIdx; i < (int)transactions.size(); i++) {
         if (transactions[i].type == "buy") {
             income += transactions[i].amount;
         } else if (transactions[i].type == "import") {
@@ -843,19 +828,27 @@ User* getCurrentUser() {
 }
 
 bool userExists(const string& userID) {
-    return userMap.find(userID) != userMap.end();
+    return getUser(userID) != nullptr;
 }
 
 User* getUser(const string& userID) {
-    auto it = userMap.find(userID);
-    return (it != userMap.end()) ? it->second : nullptr;
+    for (auto& user : users) {
+        if (user.userID == userID) {
+            return &user;
+        }
+    }
+    return nullptr;
 }
 
 bool bookExists(const string& ISBN) {
-    return bookMap.find(ISBN) != bookMap.end();
+    return getBook(ISBN) != nullptr;
 }
 
 Book* getBook(const string& ISBN) {
-    auto it = bookMap.find(ISBN);
-    return (it != bookMap.end()) ? it->second : nullptr;
+    for (auto& book : books) {
+        if (book.ISBN == ISBN) {
+            return &book;
+        }
+    }
+    return nullptr;
 }
