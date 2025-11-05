@@ -1,0 +1,6 @@
+su root sjtu
+show
+select 1234567890
+show
+logout
+quit

@@ -1,0 +1,9 @@
+CMakeFiles/
+CMakeCache.txt
+*.o
+code
+*.dSYM/
+*.out
+*.log
+data/
+temp/
